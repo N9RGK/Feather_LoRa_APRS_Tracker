@@ -1,0 +1,11 @@
+{
+    "callsign": "N9RGK-1",
+    "comment": "Rocket Telemetry",
+    "lora_freq_mhz": 443.775,
+    "lora_bw_khz": 125.0,
+    "lora_sf": 12,
+    "lora_cr": 5,
+    "lora_sync_word": 18,
+    "lora_power_dbm": 17,
+    "tx_interval_ms": 30000
+}
