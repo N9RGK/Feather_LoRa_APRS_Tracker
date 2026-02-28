@@ -1,0 +1,11 @@
+Feather LoRa APRS Tracker — A LoRa APRS position tracker built on the Adafruit Feather M0 RFM96 (433MHz) for high-power rocket telemetry. Transmits real-time GPS position and flight data as standard TNC2 APRS packets over LoRa, compatible with the CA2RXU LoRa_APRS_Tracker/iGate network.
+The tracker reads GPS coordinates from an Adafruit GPS FeatherWing on Serial1 and receives altitude/flight-state data from a companion altimeter board over a SERCOM1 UART link. It builds uncompressed APRS position packets with telemetry in the comment field and transmits them via LoRa at configurable intervals.
+Radio settings match the CA2RXU LoRa APRS ecosystem: 433.775 MHz, SF12, 125 kHz bandwidth, coding rate 4/5, sync word 0x12. Any ground station or iGate running CA2RXU firmware will receive and decode the packets.
+Built with PlatformIO and Arduino framework. Uses RadioLib for LoRa radio control and TinyGPSPlus for NMEA parsing.
+
+
+This Code was based off on the work of :
+https://github.com/richonguzman/LoRa_APRS_Tracker : CA2RXU LoRa APRS Tracker/Station
+
+I wanted a tracker that would run on an Adafeather LoRa M0 and work with his ground station code so me and Claude made this. 
+Please change the callsign and maybe the freq (currently 443.775) before use.
