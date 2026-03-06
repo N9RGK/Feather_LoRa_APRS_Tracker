@@ -29,31 +29,44 @@ static bool lora_transmit(const String& packet) {
     return true;
 }
 
-void lora_aprs_init() {
-    int state = radio.begin(LORA_FREQ_MHZ, LORA_BW_KHZ, LORA_SF, LORA_CR, LORA_SYNC_WORD, LORA_POWER_DBM);
+static bool configure_radio(const TrackerConfig* cfg) {
+    int state = radio.begin(cfg->lora_freq_mhz, cfg->lora_bw_khz,
+                            cfg->lora_sf, cfg->lora_cr,
+                            cfg->lora_sync_word, cfg->lora_power_dbm);
     if (state != RADIOLIB_ERR_NONE) {
         Serial.print("FAILED (");
         Serial.print(state);
         Serial.println(")");
-    } else {
-        Serial.println("ok");
-        Serial.print("  Freq: ");
-        Serial.print(LORA_FREQ_MHZ);
-        Serial.print(" MHz, SF");
-        Serial.print(LORA_SF);
-        Serial.print(", BW ");
-        Serial.print(LORA_BW_KHZ, 0);
-        Serial.print(" kHz, ");
-        Serial.print(LORA_POWER_DBM);
-        Serial.println(" dBm");
+        return false;
     }
+    Serial.println("ok");
+    Serial.print("  Freq: ");
+    Serial.print(cfg->lora_freq_mhz);
+    Serial.print(" MHz, SF");
+    Serial.print(cfg->lora_sf);
+    Serial.print(", BW ");
+    Serial.print(cfg->lora_bw_khz, 0);
+    Serial.print(" kHz, ");
+    Serial.print(cfg->lora_power_dbm);
+    Serial.println(" dBm");
+    return true;
+}
+
+bool lora_aprs_init(const TrackerConfig* cfg) {
+    return configure_radio(cfg);
+}
+
+bool lora_aprs_reconfigure(const TrackerConfig* cfg) {
+    Serial.print("LoRa reconfigure... ");
+    return configure_radio(cfg);
 }
 
 void lora_aprs_send() {
     const GpsFix* fix = gps_handler_get_fix();
     const AltimeterData* alt = altimeter_rx_get();
+    const TrackerConfig* cfg = tracker_config_get();
 
-    String packet = telemetry_build_aprs_packet(fix, alt);
+    String packet = telemetry_build_aprs_packet(fix, alt, cfg->callsign);
 
     Serial.print("[APRS TX] ");
     Serial.println(packet);
@@ -82,8 +95,9 @@ void lora_aprs_send() {
 void lora_dense_send() {
     const GpsFix* fix = gps_handler_get_fix();
     const AltimeterData* alt = altimeter_rx_get();
+    const TrackerConfig* cfg = tracker_config_get();
 
-    String packet = telemetry_build_dense_packet(fix, alt);
+    String packet = telemetry_build_dense_packet(fix, alt, cfg->callsign);
 
     Serial.print("[DENSE TX] ");
     Serial.println(packet);

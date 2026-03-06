@@ -19,7 +19,7 @@ const char* telemetry_phase_name(uint8_t state, uint8_t thrust) {
 // Format: CALLSIGN>APRS,WIDE1-1:!DDMM.hhN/DDDMM.hhWO comment
 // Comment: "Alt:1677m Phase:COAST V:+12m/s" (~50 chars, human-readable)
 // Compatible with CA2RXU LoRa_APRS_Tracker/iGate receivers.
-String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt) {
+String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
     // Build comment field with telemetry summary
     String comment;
     if (alt && alt->valid) {
@@ -45,13 +45,13 @@ String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt) 
     String pos = telemetry_encode_aprs_position(lat, lng);
 
     // TNC2 format: CALLSIGN>APRS,WIDE1-1:!position comment
-    return String(CALLSIGN) + ">APRS,WIDE1-1:" + pos + " " + comment;
+    return String(callsign) + ">APRS,WIDE1-1:" + pos + " " + comment;
 }
 
 // Build a dense telemetry packet with full data set.
 // Format: CALLSIGN>APRS,WIDE1-1:{{T2:alt5501,vel12.3,mxa5501,st1,th0,...}}
 // This is our proprietary format — only our ground station parses it.
-String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt) {
+String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
     char buf[200];
 
     if (alt && alt->valid) {
@@ -113,7 +113,7 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt)
         }
     }
 
-    String pkt = String(CALLSIGN) + ">APRS,WIDE1-1:" + payload;
+    String pkt = String(callsign) + ">APRS,WIDE1-1:" + payload;
     return pkt;
 }
 

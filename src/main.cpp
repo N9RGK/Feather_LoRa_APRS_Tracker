@@ -3,25 +3,22 @@
 #include "gps_handler.h"
 #include "lora_aprs.h"
 #include "altimeter_rx.h"
-
-// Active telemetry mode — initialized from compile-time default,
-// will be overridable via HTTP config interface in the future.
-static uint8_t telemetry_mode = TELEMETRY_MODE;
+#include "tracker_config.h"
+#include "serial_cmd.h"
 
 // Get the phase-dependent transmit interval for the current flight state.
 // Returns interval in ms. Falls back to pad rate if altimeter data invalid.
-// Used by APRS mode (interval between APRS packets) and Full mode
-// (interval between dense packets).
 static uint32_t get_phase_interval() {
+    const TrackerConfig* cfg = tracker_config_get();
     const AltimeterData* alt = altimeter_rx_get();
-    if (!alt->valid) return APRS_RATE_PAD_MS;
+    if (!alt->valid) return cfg->aprs_rate_pad_ms;
 
     switch (alt->state) {
-        case STATE_PAD_IDLE: return APRS_RATE_PAD_MS;
-        case STATE_ASCENT:   return APRS_RATE_ASCENT_MS;
-        case STATE_DESCENT:  return APRS_RATE_DESCENT_MS;
-        case STATE_LANDED:   return APRS_RATE_LANDED_MS;
-        default:             return APRS_RATE_PAD_MS;
+        case STATE_PAD_IDLE: return cfg->aprs_rate_pad_ms;
+        case STATE_ASCENT:   return cfg->aprs_rate_ascent_ms;
+        case STATE_DESCENT:  return cfg->aprs_rate_descent_ms;
+        case STATE_LANDED:   return cfg->aprs_rate_landed_ms;
+        default:             return cfg->aprs_rate_pad_ms;
     }
 }
 
@@ -40,14 +37,19 @@ void setup() {
     while (!Serial && millis() < 3000);  // wait up to 3s for USB serial
     Serial.println();
     Serial.println("=== Feather LoRa APRS Tracker ===");
+
+    // Load config from SPI flash (falls back to compiled defaults)
+    tracker_config_init();
+    const TrackerConfig* cfg = tracker_config_get();
+
     Serial.print("Callsign: ");
-    Serial.println(CALLSIGN);
+    Serial.println(cfg->callsign);
     Serial.print("Telemetry mode: ");
-    Serial.println(mode_name(telemetry_mode));
+    Serial.println(mode_name(cfg->telemetry_mode));
     Serial.print("LoRa: SF");
-    Serial.print(LORA_SF);
+    Serial.print(cfg->lora_sf);
     Serial.print(", ");
-    Serial.print(LORA_FREQ_MHZ);
+    Serial.print(cfg->lora_freq_mhz);
     Serial.println(" MHz");
 
     Serial.print("GPS init... ");
@@ -61,7 +63,11 @@ void setup() {
     Serial.println("ok");
 
     Serial.print("LoRa radio init... ");
-    lora_aprs_init();
+    lora_aprs_init(cfg);
+
+    // Initialize CDC serial command handler
+    serial_cmd_init();
+    Serial.println("CDC serial command handler ready");
 }
 
 // LED flash patterns to distinguish packet types
@@ -85,6 +91,9 @@ void loop() {
     gps_handler_update();
     altimeter_rx_update();
 
+    // Process incoming CDC serial commands
+    serial_cmd_update();
+
     // Heartbeat: brief blink every 2s to show the board is alive
     static uint32_t last_blink = 0;
     if (millis() - last_blink >= 2000) {
@@ -94,12 +103,13 @@ void loop() {
         last_blink = millis();
     }
 
+    const TrackerConfig* cfg = tracker_config_get();
     static uint32_t last_aprs_tx = 0;
     static uint32_t last_dense_tx = 0;
     uint32_t now = millis();
     uint32_t interval = get_phase_interval();
 
-    switch (telemetry_mode) {
+    switch (cfg->telemetry_mode) {
 
     // ---------------------------------------------------------------
     // MODE_APRS: Only APRS position packets at phase-dependent rate.
@@ -153,7 +163,7 @@ void loop() {
             Serial.println("ms");
         }
         // Otherwise, is there room for a dense packet?
-        else if (now - last_dense_tx >= DENSE_MIN_INTERVAL_MS) {
+        else if (now - last_dense_tx >= cfg->dense_min_interval_ms) {
             // Only send dense if we have enough time before next APRS.
             // Leave at least 200ms margin for radio airtime + processing.
             uint32_t time_to_next_aprs = (last_aprs_tx + interval) - now;
