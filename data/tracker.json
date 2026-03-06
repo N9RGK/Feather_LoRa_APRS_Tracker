@@ -1,11 +1,16 @@
 {
     "callsign": "N9RGK-1",
     "comment": "Rocket Telemetry",
+    "telemetry_mode": "hybrid",
     "lora_freq_mhz": 443.775,
     "lora_bw_khz": 125.0,
-    "lora_sf": 12,
+    "lora_sf": 8,
     "lora_cr": 5,
     "lora_sync_word": 18,
     "lora_power_dbm": 17,
-    "tx_interval_ms": 30000
+    "aprs_rate_pad_ms": 10000,
+    "aprs_rate_ascent_ms": 1000,
+    "aprs_rate_descent_ms": 2000,
+    "aprs_rate_landed_ms": 5000,
+    "dense_min_interval_ms": 500
 }
