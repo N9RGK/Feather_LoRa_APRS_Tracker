@@ -6,7 +6,7 @@
 // Fields mirror the JSON keys. Defaults come from config.h compile-time values.
 typedef struct {
     char     callsign[12];        // APRS callsign (e.g. "N9RGK-1")
-    uint8_t  telemetry_mode;      // 0=APRS, 1=Full, 2=Hybrid
+    uint8_t  telemetry_mode;      // 0=APRS, 1=Full, 2=Hybrid, 3=Event, 4=Curve
     float    lora_freq_mhz;
     float    lora_bw_khz;
     uint8_t  lora_sf;
@@ -18,6 +18,12 @@ typedef struct {
     uint32_t aprs_rate_descent_ms;
     uint32_t aprs_rate_landed_ms;
     uint32_t dense_min_interval_ms;
+    // MODE_EVENT settings
+    uint32_t event_aprs_rate_pad_ms;
+    uint32_t event_aprs_rate_ascent_ms;
+    uint32_t event_aprs_rate_descent_ms;
+    uint32_t event_aprs_rate_landed_ms;
+    uint8_t  event_repeat_count;
 } TrackerConfig;
 
 // Load config from /tracker.json on SPIFFS.

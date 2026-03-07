@@ -15,6 +15,25 @@ const char* telemetry_phase_name(uint8_t state, uint8_t thrust) {
     }
 }
 
+// Event code to string mapping for {{E:c<code>,...}} packets.
+const char* telemetry_event_code_str(uint8_t code) {
+    switch (code) {
+        case EVT_BURNOUT:     return "B";
+        case EVT_APOGEE:      return "A";
+        case EVT_P1_FIRE:     return "P1";
+        case EVT_P1_FAIL:     return "P1F";
+        case EVT_DROGUE_OK:   return "D";
+        case EVT_DROGUE_FAIL: return "DF";
+        case EVT_P2_FIRE:     return "P2";
+        case EVT_P2_FAIL:     return "P2F";
+        case EVT_MAIN_OK:     return "M";
+        case EVT_MAIN_FAIL:   return "MF";
+        case EVT_LANDED:      return "L";
+        case EVT_REPORT:      return "R";
+        default:              return "?";
+    }
+}
+
 // Build a TNC2-format APRS position+comment packet string.
 // Format: CALLSIGN>APRS,WIDE1-1:!DDMM.hhN/DDDMM.hhWO comment
 // Comment: "Alt:1677m Phase:COAST V:+12m/s" (~50 chars, human-readable)
@@ -48,6 +67,28 @@ String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, 
     return String(callsign) + ">APRS,WIDE1-1:" + pos + " " + comment;
 }
 
+// Build a compact APRS packet for MODE_EVENT.
+// Shorter comment: "A1677 BOOST" saves ~20 bytes vs full comment.
+// At SF12 this saves ~0.6s airtime per packet.
+String telemetry_build_compact_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
+    String comment;
+    if (alt && alt->valid) {
+        int32_t alt_m = alt->alt_cm / 100;
+        const char* phase = telemetry_phase_name(alt->state, alt->thrust);
+        char buf[24];
+        snprintf(buf, sizeof(buf), "A%ld %s", (long)alt_m, phase);
+        comment = buf;
+    } else {
+        comment = "NoAlt";
+    }
+
+    double lat = fix->valid ? fix->lat : 0.0;
+    double lng = fix->valid ? fix->lng : 0.0;
+    String pos = telemetry_encode_aprs_position(lat, lng);
+
+    return String(callsign) + ">APRS,WIDE1-1:" + pos + " " + comment;
+}
+
 // Build a dense telemetry packet with full data set.
 // Format: CALLSIGN>APRS,WIDE1-1:{{T2:alt5501,vel12.3,mxa5501,st1,th0,...}}
 // This is our proprietary format — only our ground station parses it.
@@ -76,7 +117,7 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
 
         snprintf(buf, sizeof(buf),
                  "{{T2:alt%ld,vel%ld.%ld,mxa%ld,st%u,th%u,"
-                 "py%s,pa%u:%u,pr%ld,bt%u,tp%d,tm%lu,sq%u,fl%02X}}",
+                 "py%s,pa%u:%u,pr%ld,bt%u,tp%d,tm%lu,sq%u,fl%04X}}",
                  (long)alt_m,
                  (long)vel_whole, (long)vel_frac,
                  (long)mxa_m,
@@ -115,6 +156,69 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
 
     String pkt = String(callsign) + ">APRS,WIDE1-1:" + payload;
     return pkt;
+}
+
+// Build an event packet from a FlightEvent.
+// Format: CALLSIGN>APRS,WIDE1-1:{{E:c<code>,t<time>,a<alt>,v<vel>}}
+// LANDED event adds GPS: {{E:cL,t52,a0,v0,la41.12345,ln-73.12345}}
+// REPORT event adds errors: {{E:cR,t52,a1677,v89,er00}}
+String telemetry_build_event_packet(const FlightEvent* evt, const char* callsign) {
+    const char* code_str = telemetry_event_code_str(evt->code);
+
+    char buf[120];
+    int len = snprintf(buf, sizeof(buf), "{{E:c%s,t%lu,a%ld,v%ld",
+                       code_str,
+                       (unsigned long)evt->flight_time_s,
+                       (long)evt->alt_m,
+                       (long)evt->vel_mps);
+
+    // Append GPS position for LANDED and REPORT events
+    if (evt->has_gps) {
+        len += snprintf(buf + len, sizeof(buf) - len,
+                        ",la%.5f,ln%.5f",
+                        evt->lat, evt->lng);
+    }
+
+    // Append error flags for REPORT event
+    if (evt->code == EVT_REPORT) {
+        len += snprintf(buf + len, sizeof(buf) - len,
+                        ",er%02X", evt->error_flags);
+    }
+
+    snprintf(buf + len, sizeof(buf) - len, "}}");
+
+    return String(callsign) + ">APRS,WIDE1-1:" + String(buf);
+}
+
+// Build a flight curve packet — raw pressure + altitude + velocity + state +
+// flight time + sequence. No GPS, no pyro, no extras. Designed for maximum
+// data rate to reconstruct the altitude/pressure curve post-flight.
+// Format: CALLSIGN>APRS,WIDE1-1:{{C:pr<press>,a<alt>,v<vel>,st<state>,t<time_ds>,sq<seq>}}
+// ~65 bytes total (with header). Smallest practical telemetry packet.
+// Flight time is in deciseconds (tenths of a second) for 100ms curve resolution.
+String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsign) {
+    char buf[80];
+
+    if (alt && alt->valid) {
+        int32_t alt_m = alt->alt_cm / 100;
+        int32_t vel_whole = alt->vel_cms / 100;
+        int32_t vel_frac = (abs(alt->vel_cms) % 100) / 10;
+        // Deciseconds (100ms resolution) for curve reconstruction fidelity
+        uint32_t tm_ds = alt->flight_time_ms / 100;
+
+        snprintf(buf, sizeof(buf),
+                 "{{C:pr%ld,a%ld,v%ld.%ld,st%u,t%lu,sq%u}}",
+                 (long)alt->press_pa,
+                 (long)alt_m,
+                 (long)vel_whole, (long)vel_frac,
+                 alt->state,
+                 (unsigned long)tm_ds,
+                 alt->seq);
+    } else {
+        snprintf(buf, sizeof(buf), "{{C:noalt}}");
+    }
+
+    return String(callsign) + ">APRS,WIDE1-1:" + String(buf);
 }
 
 // Encode lat/lng in uncompressed APRS position format.

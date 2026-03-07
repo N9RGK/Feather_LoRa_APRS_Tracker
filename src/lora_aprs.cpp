@@ -92,6 +92,19 @@ void lora_aprs_send() {
     lora_transmit(packet);
 }
 
+void lora_compact_aprs_send() {
+    const GpsFix* fix = gps_handler_get_fix();
+    const AltimeterData* alt = altimeter_rx_get();
+    const TrackerConfig* cfg = tracker_config_get();
+
+    String packet = telemetry_build_compact_aprs_packet(fix, alt, cfg->callsign);
+
+    Serial.print("[APRS-C TX] ");
+    Serial.println(packet);
+
+    lora_transmit(packet);
+}
+
 void lora_dense_send() {
     const GpsFix* fix = gps_handler_get_fix();
     const AltimeterData* alt = altimeter_rx_get();
@@ -103,4 +116,43 @@ void lora_dense_send() {
     Serial.println(packet);
 
     lora_transmit(packet);
+}
+
+void lora_event_send(const FlightEvent* evt) {
+    const TrackerConfig* cfg = tracker_config_get();
+
+    String packet = telemetry_build_event_packet(evt, cfg->callsign);
+
+    Serial.print("[EVENT TX] ");
+    Serial.println(packet);
+
+    lora_transmit(packet);
+}
+
+void lora_curve_send() {
+    const AltimeterData* alt = altimeter_rx_get();
+    const TrackerConfig* cfg = tracker_config_get();
+
+    String packet = telemetry_build_curve_packet(alt, cfg->callsign);
+
+    Serial.print("[CURVE TX] ");
+    Serial.println(packet);
+
+    lora_transmit(packet);
+}
+
+// Estimated packet sizes (payload bytes including OE header).
+// Used for airtime calculations. These are approximate — the actual
+// size varies slightly with field values, but the estimates are
+// conservative (slightly over) so timing is safe.
+uint16_t lora_packet_size_estimate(uint8_t mode) {
+    // 3-byte OE header is always added
+    switch (mode) {
+        case MODE_APRS:   return 3 + 77;   // APRS position + full comment
+        case MODE_FULL:   return 3 + 163;  // Dense telemetry with GPS
+        case MODE_HYBRID: return 3 + 163;  // Dense is the larger packet
+        case MODE_EVENT:  return 3 + 60;   // Compact APRS (event packets handled separately)
+        case MODE_CURVE:  return 3 + 65;   // Curve packet (minimal)
+        default:          return 3 + 80;
+    }
 }

@@ -4,6 +4,12 @@
 
 // All fields from the $PYRO NMEA sentence.
 // Values are integer, metric, matching the serial protocol exactly.
+//
+// The flags field is 16-bit to support extended event flags from the
+// altimeter's deployment/failure detection logic. Bits 0-5 are the
+// original flags; bits 6-11 are extended flags (EFLAG_*).
+// If the altimeter sends 2-char hex (old firmware), only bits 0-7 are
+// populated. If it sends 4-char hex (new firmware), all 16 bits are used.
 typedef struct {
     uint16_t seq;           // Sequence number (0–65535)
     uint8_t  state;         // 0=PAD_IDLE, 1=ASCENT, 2=DESCENT, 3=LANDED
@@ -13,7 +19,7 @@ typedef struct {
     int32_t  max_alt_cm;    // Max altitude this flight, cm
     int32_t  press_pa;      // Filtered pressure in pascals
     uint32_t flight_time_ms;// Flight time in ms since launch (0 on pad)
-    uint8_t  flags;         // Bitfield: p1_cont, p2_cont, p1_fired, p2_fired, armed, apogee
+    uint16_t flags;         // Bitfield: bits 0-5 original, bits 6-11 extended (EFLAG_*)
     uint16_t p1_adc;        // Pyro 1 raw ADC (0–4095)
     uint16_t p2_adc;        // Pyro 2 raw ADC (0–4095)
     uint16_t batt_adc;      // Battery voltage raw ADC (0 until implemented)

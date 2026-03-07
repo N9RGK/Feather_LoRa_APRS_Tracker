@@ -4,12 +4,17 @@
 #include <ArduinoJson.h>
 #include <SPI.h>
 #include <Adafruit_SPIFlash.h>
-#include <Adafruit_TinyUSB.h> // required before InternalFileSystem on some boards
 
 #if defined(ARDUINO_ARCH_SAMD)
-  // Feather M0: use SPI flash with FatFs
   #include <SdFat.h>
-  Adafruit_FlashTransport_SPI flashTransport(SS1, &SPI1);
+  #if defined(EXTERNAL_FLASH_USE_QSPI)
+    Adafruit_FlashTransport_QSPI flashTransport;
+  #elif defined(EXTERNAL_FLASH_USE_SPI)
+    Adafruit_FlashTransport_SPI flashTransport(EXTERNAL_FLASH_USE_CS,
+                                               EXTERNAL_FLASH_USE_SPI);
+  #else
+    Adafruit_FlashTransport_SPI flashTransport(SS, SPI);
+  #endif
   Adafruit_SPIFlash flash(&flashTransport);
   FatVolume fatfs;
   #define USE_SPIFATFS 1
@@ -32,12 +37,20 @@ static void set_defaults(TrackerConfig* cfg) {
     cfg->aprs_rate_descent_ms = APRS_RATE_DESCENT_MS;
     cfg->aprs_rate_landed_ms  = APRS_RATE_LANDED_MS;
     cfg->dense_min_interval_ms = DENSE_MIN_INTERVAL_MS;
+    // MODE_EVENT defaults
+    cfg->event_aprs_rate_pad_ms     = EVENT_APRS_RATE_PAD_MS;
+    cfg->event_aprs_rate_ascent_ms  = EVENT_APRS_RATE_ASCENT_MS;
+    cfg->event_aprs_rate_descent_ms = EVENT_APRS_RATE_DESCENT_MS;
+    cfg->event_aprs_rate_landed_ms  = EVENT_APRS_RATE_LANDED_MS;
+    cfg->event_repeat_count         = EVENT_REPEAT_COUNT;
 }
 
 static uint8_t mode_from_string(const char* s) {
-    if (strcmp(s, "aprs") == 0) return MODE_APRS;
-    if (strcmp(s, "full") == 0) return MODE_FULL;
+    if (strcmp(s, "aprs") == 0)   return MODE_APRS;
+    if (strcmp(s, "full") == 0)   return MODE_FULL;
     if (strcmp(s, "hybrid") == 0) return MODE_HYBRID;
+    if (strcmp(s, "event") == 0)  return MODE_EVENT;
+    if (strcmp(s, "curve") == 0)  return MODE_CURVE;
     return MODE_HYBRID;  // default
 }
 
@@ -46,6 +59,8 @@ static const char* mode_to_string(uint8_t mode) {
         case MODE_APRS:   return "aprs";
         case MODE_FULL:   return "full";
         case MODE_HYBRID: return "hybrid";
+        case MODE_EVENT:  return "event";
+        case MODE_CURVE:  return "curve";
         default:          return "hybrid";
     }
 }
@@ -60,7 +75,7 @@ bool tracker_config_load(TrackerConfig* cfg) {
         return false;
     }
 
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<768> doc;
     DeserializationError err = deserializeJson(doc, file);
     file.close();
 
@@ -99,6 +114,17 @@ bool tracker_config_load(TrackerConfig* cfg) {
         cfg->aprs_rate_landed_ms = doc["aprs_rate_landed_ms"].as<uint32_t>();
     if (doc.containsKey("dense_min_interval_ms"))
         cfg->dense_min_interval_ms = doc["dense_min_interval_ms"].as<uint32_t>();
+    // MODE_EVENT settings
+    if (doc.containsKey("event_aprs_rate_pad_ms"))
+        cfg->event_aprs_rate_pad_ms = doc["event_aprs_rate_pad_ms"].as<uint32_t>();
+    if (doc.containsKey("event_aprs_rate_ascent_ms"))
+        cfg->event_aprs_rate_ascent_ms = doc["event_aprs_rate_ascent_ms"].as<uint32_t>();
+    if (doc.containsKey("event_aprs_rate_descent_ms"))
+        cfg->event_aprs_rate_descent_ms = doc["event_aprs_rate_descent_ms"].as<uint32_t>();
+    if (doc.containsKey("event_aprs_rate_landed_ms"))
+        cfg->event_aprs_rate_landed_ms = doc["event_aprs_rate_landed_ms"].as<uint32_t>();
+    if (doc.containsKey("event_repeat_count"))
+        cfg->event_repeat_count = doc["event_repeat_count"].as<uint8_t>();
 
     Serial.println("  Config loaded from tracker.json");
     return true;
@@ -118,7 +144,7 @@ bool tracker_config_save(const TrackerConfig* cfg) {
         return false;
     }
 
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<768> doc;
     doc["callsign"]             = cfg->callsign;
     doc["telemetry_mode"]       = mode_to_string(cfg->telemetry_mode);
     doc["lora_freq_mhz"]        = cfg->lora_freq_mhz;
@@ -132,6 +158,12 @@ bool tracker_config_save(const TrackerConfig* cfg) {
     doc["aprs_rate_descent_ms"] = cfg->aprs_rate_descent_ms;
     doc["aprs_rate_landed_ms"]  = cfg->aprs_rate_landed_ms;
     doc["dense_min_interval_ms"] = cfg->dense_min_interval_ms;
+    // MODE_EVENT settings
+    doc["event_aprs_rate_pad_ms"]     = cfg->event_aprs_rate_pad_ms;
+    doc["event_aprs_rate_ascent_ms"]  = cfg->event_aprs_rate_ascent_ms;
+    doc["event_aprs_rate_descent_ms"] = cfg->event_aprs_rate_descent_ms;
+    doc["event_aprs_rate_landed_ms"]  = cfg->event_aprs_rate_landed_ms;
+    doc["event_repeat_count"]         = cfg->event_repeat_count;
 
     serializeJsonPretty(doc, file);
     file.close();

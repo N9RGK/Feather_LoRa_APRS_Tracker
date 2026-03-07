@@ -22,15 +22,19 @@ static AltimeterData data = {};
 static char line_buf[LINE_BUF_SIZE];
 static uint8_t line_idx = 0;
 
-// Parse a hex byte string (e.g. "1B" -> 0x1B)
-static uint8_t parse_hex_byte(const char* s) {
-    uint8_t val = 0;
-    for (int i = 0; i < 2 && s[i]; i++) {
-        val <<= 4;
+// Parse a hex string of variable length (e.g. "1B" -> 0x1B, "031F" -> 0x031F).
+// Handles both 2-char (old altimeter, 8-bit flags) and 4-char (new altimeter,
+// 16-bit flags with extended event detection bits).
+static uint16_t parse_hex_word(const char* s) {
+    uint16_t val = 0;
+    for (int i = 0; i < 4 && s[i]; i++) {
         char c = s[i];
-        if (c >= '0' && c <= '9')      val |= (c - '0');
-        else if (c >= 'A' && c <= 'F') val |= (c - 'A' + 10);
-        else if (c >= 'a' && c <= 'f') val |= (c - 'a' + 10);
+        uint8_t nibble;
+        if (c >= '0' && c <= '9')      nibble = (c - '0');
+        else if (c >= 'A' && c <= 'F') nibble = (c - 'A' + 10);
+        else if (c >= 'a' && c <= 'f') nibble = (c - 'a' + 10);
+        else break;  // stop on non-hex char
+        val = (val << 4) | nibble;
     }
     return val;
 }
@@ -48,6 +52,7 @@ static uint8_t nmea_checksum(const char* sentence) {
 
 // Parse a complete $PYRO sentence into the data struct.
 // Format: $PYRO,seq,state,thrust,alt,vel,maxalt,press,time,flags,p1adc,p2adc,batt,temp*XX
+// The flags field accepts both 2-char hex (8-bit) and 4-char hex (16-bit).
 // Returns true if parse succeeded and checksum matched.
 static bool parse_pyro_sentence(const char* sentence) {
     // Verify prefix
@@ -58,9 +63,9 @@ static bool parse_pyro_sentence(const char* sentence) {
     if (!star) return false;
 
     // Verify checksum
-    uint8_t expected_cs = parse_hex_byte(star + 1);
+    uint16_t expected_cs = parse_hex_word(star + 1);
     uint8_t actual_cs = nmea_checksum(sentence);
-    if (expected_cs != actual_cs) return false;
+    if ((uint8_t)expected_cs != actual_cs) return false;
 
     // Parse CSV fields after "$PYRO,"
     // 13 fields: seq,state,thrust,alt,vel,maxalt,press,time,flags,p1adc,p2adc,batt,temp
@@ -76,7 +81,7 @@ static bool parse_pyro_sentence(const char* sentence) {
     int32_t  t_maxalt = 0;
     int32_t  t_press = 0;
     uint32_t t_time = 0;
-    uint8_t  t_flags = 0;
+    uint16_t t_flags = 0;
     uint16_t t_p1adc = 0;
     uint16_t t_p2adc = 0;
     uint16_t t_batt = 0;
@@ -100,7 +105,7 @@ static bool parse_pyro_sentence(const char* sentence) {
             case 5:  t_maxalt = atol(field_buf);            break;
             case 6:  t_press  = atol(field_buf);            break;
             case 7:  t_time   = (uint32_t)atol(field_buf);  break;
-            case 8:  t_flags  = parse_hex_byte(field_buf);  break;
+            case 8:  t_flags  = parse_hex_word(field_buf);  break;
             case 9:  t_p1adc  = (uint16_t)atol(field_buf); break;
             case 10: t_p2adc  = (uint16_t)atol(field_buf); break;
             case 11: t_batt   = (uint16_t)atol(field_buf); break;
