@@ -27,3 +27,13 @@ void gps_handler_update() {
 const GpsFix* gps_handler_get_fix() {
     return &fix;
 }
+
+bool gps_datetime_valid() {
+    return gps.date.isValid() && gps.time.isValid();
+}
+uint16_t gps_date_year()    { return gps.date.year(); }
+uint8_t  gps_date_month()   { return gps.date.month(); }
+uint8_t  gps_date_day()     { return gps.date.day(); }
+uint8_t  gps_time_hour()    { return gps.time.hour(); }
+uint8_t  gps_time_minute()  { return gps.time.minute(); }
+uint8_t  gps_time_second()  { return gps.time.second(); }

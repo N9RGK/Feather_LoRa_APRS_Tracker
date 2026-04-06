@@ -141,6 +141,34 @@ void lora_curve_send() {
     lora_transmit(packet);
 }
 
+bool lora_transmit_packet(const String& packet) {
+    return lora_transmit(packet);
+}
+
+bool lora_transmit_raw(const uint8_t* data, size_t len) {
+    int txState = radio.transmit(const_cast<uint8_t*>(data), len);
+    if (txState != RADIOLIB_ERR_NONE) {
+        Serial.print("  TX failed: ");
+        Serial.println(txState);
+        return false;
+    }
+    return true;
+}
+
+bool lora_transmit_carrier(uint32_t duration_ms) {
+    int state = radio.transmitDirect(0);
+    if (state != RADIOLIB_ERR_NONE) {
+        Serial.print("  Carrier failed: ");
+        Serial.println(state);
+        return false;
+    }
+    delay(duration_ms);
+    radio.standby();
+    // Re-apply LoRa modulation settings so the radio is ready for normal packets
+    configure_radio(tracker_config_get());
+    return true;
+}
+
 // Estimated packet sizes (payload bytes including OE header).
 // Used for airtime calculations. These are approximate — the actual
 // size varies slightly with field values, but the estimates are

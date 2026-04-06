@@ -7,6 +7,8 @@
 #include "serial_cmd.h"
 #include "event_detector.h"
 #include "lora_airtime.h"
+#include "airtime.h"
+#include "session_id.h"
 
 // ---------------------------------------------------------------
 // Airtime-aware scheduling
@@ -46,30 +48,35 @@ static uint32_t min_curve_interval_ms = 0;
 void recompute_airtime_limits() {
     const TrackerConfig* cfg = tracker_config_get();
 
-    // APRS position packet (~77 bytes payload + 3 OE header)
+    // APRS position packet (~89 bytes payload + 3 OE header)
+    // +12 bytes for session ID field " Ss:XXXXXXXX"
     min_aprs_interval_ms = lora_min_interval_ms(
-        3 + 77, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 89, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Dense telemetry packet (~163 bytes payload + 3 OE header)
+    // Dense telemetry packet (~175 bytes payload + 3 OE header)
+    // +12 bytes for session ID field "ssXXXXXXXX,"
     min_dense_interval_ms = lora_min_interval_ms(
-        3 + 163, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 175, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Compact APRS packet (~60 bytes payload + 3 OE header)
+    // Compact APRS packet (~72 bytes payload + 3 OE header)
+    // +12 bytes for session ID field " Ss:XXXXXXXX"
     min_compact_interval_ms = lora_min_interval_ms(
-        3 + 60, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 72, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Event packet (~55 bytes payload + 3 OE header)
+    // Event packet (~67 bytes payload + 3 OE header)
+    // +12 bytes for session ID field "ssXXXXXXXX,"
     // Slightly tighter — event bursts need to finish promptly so we
     // can get back to APRS beacons, but still need receiver re-sync time.
     min_event_interval_ms = lora_min_interval_ms(
-        3 + 55, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 15, 200);
+        3 + 67, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 15, 200);
 
-    // Curve packet (~65 bytes payload + 3 OE header)
+    // Curve packet (~77 bytes payload + 3 OE header)
+    // +12 bytes for session ID field "ssXXXXXXXX,"
     // Tightest budget — maximum data rate is the goal, but still leave
     // enough dead air for the radio to fully reset and the receiver to
     // process the previous packet before the next preamble arrives.
     min_curve_interval_ms = lora_min_interval_ms(
-        3 + 65, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 10, 150);
+        3 + 77, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 10, 150);
 
     Serial.println("Airtime limits (ms):");
     Serial.print("  APRS:    "); Serial.println(min_aprs_interval_ms);
@@ -135,6 +142,7 @@ static const char* mode_name(uint8_t mode) {
         case MODE_HYBRID: return "Hybrid";
         case MODE_EVENT:  return "Event";
         case MODE_CURVE:  return "Curve";
+        case MODE_TEST:   return "Test";
         default:          return "Unknown";
     }
 }
@@ -181,6 +189,10 @@ void setup() {
     // Initialize event detector (used by MODE_EVENT, but always ready)
     event_detector_init();
 
+    // Initialize session ID subsystem
+    session_id_init();
+    Serial.println("Session ID will be generated on first GPS fix");
+
     // Initialize CDC serial command handler
     serial_cmd_init();
     Serial.println("CDC serial command handler ready");
@@ -194,6 +206,13 @@ void setup() {
         Serial.print("  Effective rate: ");
         Serial.print(rate_hz, 1);
         Serial.println(" Hz");
+    }
+
+    if (cfg->telemetry_mode == MODE_TEST) {
+        Serial.println();
+        Serial.println("*** TEST MODE: USB-controlled transmissions only ***");
+        Serial.println("*** Type SEND APRS to transmit a test packet     ***");
+        Serial.println();
     }
 }
 
@@ -233,6 +252,7 @@ static void flash_curve() {
 void loop() {
     // Feed GPS and altimeter parsers
     gps_handler_update();
+    session_id_update();
     altimeter_rx_update();
 
     // Process incoming CDC serial commands
@@ -244,10 +264,20 @@ void loop() {
     const GpsFix* fix = gps_handler_get_fix();
     event_detector_update(alt, fix);
 
-    // Heartbeat: brief blink every 2s to show the board is alive
-    // (suppressed in MODE_CURVE where we want minimal overhead)
+    // Heartbeat blink to show the board is alive.
+    // Suppressed in MODE_CURVE (minimal overhead).
+    // MODE_TEST uses a slow single blink every 5s to visually indicate test mode.
+    // All other modes blink every 2s.
     const TrackerConfig* cfg = tracker_config_get();
-    if (cfg->telemetry_mode != MODE_CURVE) {
+    if (cfg->telemetry_mode == MODE_TEST) {
+        static uint32_t last_blink = 0;
+        if (millis() - last_blink >= 5000) {
+            digitalWrite(LED_BUILTIN, HIGH);
+            delay(150);
+            digitalWrite(LED_BUILTIN, LOW);
+            last_blink = millis();
+        }
+    } else if (cfg->telemetry_mode != MODE_CURVE) {
         static uint32_t last_blink = 0;
         if (millis() - last_blink >= 2000) {
             digitalWrite(LED_BUILTIN, HIGH);
@@ -433,6 +463,13 @@ void loop() {
         }
         break;
     }
+
+    // ---------------------------------------------------------------
+    // MODE_TEST: No autonomous transmissions.
+    // All transmissions are USB-controlled via SEND commands.
+    // ---------------------------------------------------------------
+    case MODE_TEST:
+        break;
 
     }  // end switch
 }

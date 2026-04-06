@@ -3,6 +3,14 @@
 // --- APRS Configuration ---
 #define CALLSIGN        "N9RGK-1"
 
+// --- Tracker ID ---
+// Unique identifier for this tracker, independent of callsign.
+// Used in APRS comment field (Id:<tracker_id>) so the ground station can
+// associate packets with a specific rocket/tracker. Multiple trackers
+// can share a callsign but each should have a unique tracker_id.
+// Configurable at runtime via SET tracker_id <id> and stored in tracker.json.
+#define TRACKER_ID      "N9RGK-1"
+
 // --- Telemetry Mode ---
 // Configurable via HTTP interface when USB-connected to ground station.
 // MODE_APRS:   APRS position packets only (1 Hz, CA2RXU-compatible)
@@ -19,6 +27,7 @@
 #define MODE_HYBRID     2
 #define MODE_EVENT      3
 #define MODE_CURVE      4
+#define MODE_TEST       5
 
 // Default telemetry mode — overridden by tracker.json config
 #define TELEMETRY_MODE  MODE_HYBRID

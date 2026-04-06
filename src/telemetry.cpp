@@ -1,5 +1,7 @@
 #include "telemetry.h"
+#include "tracker_config.h"
 #include "config.h"
+#include "session_id.h"
 #include <math.h>
 
 // Phase display names for APRS comment field.
@@ -36,24 +38,38 @@ const char* telemetry_event_code_str(uint8_t code) {
 
 // Build a TNC2-format APRS position+comment packet string.
 // Format: CALLSIGN>APRS,WIDE1-1:!DDMM.hhN/DDDMM.hhWO comment
-// Comment: "Alt:1677m Phase:COAST V:+12m/s" (~50 chars, human-readable)
+// Comment: "Alt:1677 St:COAST Id:N9RGK-1" — fields match GS aprs_parser.py
 // Compatible with CA2RXU LoRa_APRS_Tracker/iGate receivers.
 String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
-    // Build comment field with telemetry summary
+    // Build comment field with telemetry summary.
+    // GS parser expects: Alt:(-?\d+) St:(\w+) Id:(\S+)
+    const char* tid = tracker_config_get()->tracker_id;
     String comment;
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;
         int32_t vel_ms = alt->vel_cms / 100;
         const char* phase = telemetry_phase_name(alt->state, alt->thrust);
 
-        char buf[64];
-        snprintf(buf, sizeof(buf), "Alt:%ldm Phase:%s V:%s%ldm/s",
+        char buf[80];
+        snprintf(buf, sizeof(buf), "Alt:%ld St:%s V:%s%ldm/s Id:%s",
                  (long)alt_m, phase,
                  (vel_ms >= 0) ? "+" : "",
-                 (long)vel_ms);
+                 (long)vel_ms, tid);
         comment = buf;
     } else {
-        comment = "No altimeter";
+        // No altimeter — use GPS altitude if available, otherwise 0
+        int32_t alt_m = (fix && fix->valid) ? (int32_t)fix->altitude_m : 0;
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Alt:%ld St:PAD Id:%s", (long)alt_m, tid);
+        comment = buf;
+    }
+
+    // Append session ID if available
+    char ss_hex[9];
+    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
+        char ss_buf[16];
+        snprintf(ss_buf, sizeof(ss_buf), " Ss:%s", ss_hex);
+        comment += ss_buf;
     }
 
     // Fallback to zero-position if GPS not valid
@@ -68,18 +84,30 @@ String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, 
 }
 
 // Build a compact APRS packet for MODE_EVENT.
-// Shorter comment: "A1677 BOOST" saves ~20 bytes vs full comment.
-// At SF12 this saves ~0.6s airtime per packet.
+// Shorter comment: "Alt:1677 St:BOOST Id:N9RGK-1" — matches GS parser.
+// At SF12 this saves airtime vs full comment with velocity.
 String telemetry_build_compact_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
+    const char* tid = tracker_config_get()->tracker_id;
     String comment;
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;
         const char* phase = telemetry_phase_name(alt->state, alt->thrust);
-        char buf[24];
-        snprintf(buf, sizeof(buf), "A%ld %s", (long)alt_m, phase);
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Alt:%ld St:%s Id:%s", (long)alt_m, phase, tid);
         comment = buf;
     } else {
-        comment = "NoAlt";
+        int32_t alt_m = (fix && fix->valid) ? (int32_t)fix->altitude_m : 0;
+        char buf[48];
+        snprintf(buf, sizeof(buf), "Alt:%ld St:PAD Id:%s", (long)alt_m, tid);
+        comment = buf;
+    }
+
+    // Append session ID if available
+    char ss_hex[9];
+    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
+        char ss_buf[16];
+        snprintf(ss_buf, sizeof(ss_buf), " Ss:%s", ss_hex);
+        comment += ss_buf;
     }
 
     double lat = fix->valid ? fix->lat : 0.0;
@@ -93,7 +121,15 @@ String telemetry_build_compact_aprs_packet(const GpsFix* fix, const AltimeterDat
 // Format: CALLSIGN>APRS,WIDE1-1:{{T2:alt5501,vel12.3,mxa5501,st1,th0,...}}
 // This is our proprietary format — only our ground station parses it.
 String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign) {
-    char buf[200];
+    const TrackerConfig* cfg = tracker_config_get();
+    char buf[220];
+
+    // Build session ID field if available
+    char ss_field[20] = "";
+    char ss_hex[9];
+    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
+        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
+    }
 
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;
@@ -116,8 +152,10 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
         uint32_t tm_s = alt->flight_time_ms / 1000;
 
         snprintf(buf, sizeof(buf),
-                 "{{T2:alt%ld,vel%ld.%ld,mxa%ld,st%u,th%u,"
+                 "{{T2:id%s,%salt%ld,vel%ld.%ld,mxa%ld,st%u,th%u,"
                  "py%s,pa%u:%u,pr%ld,bt%u,tp%d,tm%lu,sq%u,fl%04X}}",
+                 cfg->tracker_id,
+                 ss_field,
                  (long)alt_m,
                  (long)vel_whole, (long)vel_frac,
                  (long)mxa_m,
@@ -132,7 +170,7 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
                  alt->seq,
                  alt->flags);
     } else {
-        snprintf(buf, sizeof(buf), "{{T2:noalt}}");
+        snprintf(buf, sizeof(buf), "{{T2:id%s,%snoalt}}", cfg->tracker_id, ss_field);
     }
 
     // Append GPS coordinates as fields inside the T2 payload.
@@ -165,8 +203,18 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
 String telemetry_build_event_packet(const FlightEvent* evt, const char* callsign) {
     const char* code_str = telemetry_event_code_str(evt->code);
 
-    char buf[120];
-    int len = snprintf(buf, sizeof(buf), "{{E:c%s,t%lu,a%ld,v%ld",
+    char buf[140];
+    const TrackerConfig* cfg = tracker_config_get();
+
+    char ss_field[20] = "";
+    char ss_hex[9];
+    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
+        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
+    }
+
+    int len = snprintf(buf, sizeof(buf), "{{E:id%s,%sc%s,t%lu,a%ld,v%ld",
+                       cfg->tracker_id,
+                       ss_field,
                        code_str,
                        (unsigned long)evt->flight_time_s,
                        (long)evt->alt_m,
@@ -197,7 +245,14 @@ String telemetry_build_event_packet(const FlightEvent* evt, const char* callsign
 // ~65 bytes total (with header). Smallest practical telemetry packet.
 // Flight time is in deciseconds (tenths of a second) for 100ms curve resolution.
 String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsign) {
-    char buf[80];
+    const TrackerConfig* cfg = tracker_config_get();
+    char buf[100];
+
+    char ss_field[20] = "";
+    char ss_hex[9];
+    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
+        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
+    }
 
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;
@@ -207,7 +262,9 @@ String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsi
         uint32_t tm_ds = alt->flight_time_ms / 100;
 
         snprintf(buf, sizeof(buf),
-                 "{{C:pr%ld,a%ld,v%ld.%ld,st%u,t%lu,sq%u}}",
+                 "{{C:id%s,%spr%ld,a%ld,v%ld.%ld,st%u,t%lu,sq%u}}",
+                 cfg->tracker_id,
+                 ss_field,
                  (long)alt->press_pa,
                  (long)alt_m,
                  (long)vel_whole, (long)vel_frac,
@@ -215,7 +272,7 @@ String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsi
                  (unsigned long)tm_ds,
                  alt->seq);
     } else {
-        snprintf(buf, sizeof(buf), "{{C:noalt}}");
+        snprintf(buf, sizeof(buf), "{{C:id%s,%snoalt}}", cfg->tracker_id, ss_field);
     }
 
     return String(callsign) + ">APRS,WIDE1-1:" + String(buf);
@@ -226,7 +283,7 @@ String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsi
 // The 'O' symbol after the longitude indicates "balloon" (closest APRS
 // symbol to a rocket — there is no dedicated rocket symbol in APRS).
 String telemetry_encode_aprs_position(double lat, double lng) {
-    char buf[32];
+    char buf[48];
 
     // Latitude: DDMM.hhN
     char lat_ns = (lat >= 0) ? 'N' : 'S';

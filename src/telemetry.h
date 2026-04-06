@@ -6,12 +6,12 @@
 #include "event_detector.h"
 
 // Build a TNC2-format APRS position+comment packet.
-// Comment field: ~50 chars human-readable with altitude, phase, velocity.
-// Compatible with CA2RXU LoRa_APRS_Tracker/iGate receivers.
+// Comment: "Alt:1677 St:COAST V:+12m/s Id:N9RGK-1" — matches GS aprs_parser.py.
+// Falls back to GPS altitude when altimeter unavailable.
 String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign);
 
 // Build a compact APRS packet for MODE_EVENT.
-// Shorter comment field: "A1677 BOOST" (~11 chars) to minimize airtime at SF12.
+// Comment: "Alt:1677 St:BOOST Id:N9RGK-1" — shorter, matches GS parser.
 String telemetry_build_compact_aprs_packet(const GpsFix* fix, const AltimeterData* alt, const char* callsign);
 
 // Build a dense telemetry packet with full data set.

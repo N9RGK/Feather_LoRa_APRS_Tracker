@@ -136,6 +136,134 @@ static bool parse_pyro_sentence(const char* sentence) {
     return true;
 }
 
+// Parse $PYRO_APO sentence: $PYRO_APO,max_alt_cm,flight_time_ms*XX
+static bool parse_pyro_apo_sentence(const char* sentence) {
+    if (strncmp(sentence, "$PYRO_APO,", 10) != 0) return false;
+
+    const char* star = strchr(sentence, '*');
+    if (!star) return false;
+
+    uint16_t expected_cs = parse_hex_word(star + 1);
+    uint8_t actual_cs = nmea_checksum(sentence);
+    if ((uint8_t)expected_cs != actual_cs) return false;
+
+    const char* p = sentence + 10;  // skip "$PYRO_APO,"
+    char field_buf[16];
+    int fi;
+
+    // Field 0: max_alt_cm
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    if (*p == ',') p++;
+    int32_t max_alt_cm = atol(field_buf);
+
+    // Field 1: flight_time_ms
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    uint32_t flight_time_ms = (uint32_t)atol(field_buf);
+
+    data.apogee_event = true;
+    data.apogee_max_alt_cm = max_alt_cm;
+    data.apogee_time_ms = flight_time_ms;
+    data.last_rx_ms = millis();
+
+    return true;
+}
+
+// Parse $PYRO_FIRE sentence: $PYRO_FIRE,channel,alt_cm,flight_time_ms*XX
+static bool parse_pyro_fire_sentence(const char* sentence) {
+    if (strncmp(sentence, "$PYRO_FIRE,", 11) != 0) return false;
+
+    const char* star = strchr(sentence, '*');
+    if (!star) return false;
+
+    uint16_t expected_cs = parse_hex_word(star + 1);
+    uint8_t actual_cs = nmea_checksum(sentence);
+    if ((uint8_t)expected_cs != actual_cs) return false;
+
+    const char* p = sentence + 11;  // skip "$PYRO_FIRE,"
+    char field_buf[16];
+    int fi;
+
+    // Field 0: channel
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    if (*p == ',') p++;
+    uint8_t channel = (uint8_t)atoi(field_buf);
+
+    // Field 1: alt_cm
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    if (*p == ',') p++;
+    int32_t alt_cm = atol(field_buf);
+
+    // Field 2: flight_time_ms
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    uint32_t flight_time_ms = (uint32_t)atol(field_buf);
+
+    if (channel == 1) {
+        data.pyro1_fire_event = true;
+        data.pyro1_fire_alt_cm = alt_cm;
+        data.pyro1_fire_time_ms = flight_time_ms;
+    } else if (channel == 2) {
+        data.pyro2_fire_event = true;
+        data.pyro2_fire_alt_cm = alt_cm;
+        data.pyro2_fire_time_ms = flight_time_ms;
+    }
+    data.last_rx_ms = millis();
+
+    return true;
+}
+
+// Parse $PYRO_LAND sentence: $PYRO_LAND,max_alt_cm,flight_time_ms*XX
+static bool parse_pyro_land_sentence(const char* sentence) {
+    if (strncmp(sentence, "$PYRO_LAND,", 11) != 0) return false;
+
+    const char* star = strchr(sentence, '*');
+    if (!star) return false;
+
+    uint16_t expected_cs = parse_hex_word(star + 1);
+    uint8_t actual_cs = nmea_checksum(sentence);
+    if ((uint8_t)expected_cs != actual_cs) return false;
+
+    const char* p = sentence + 11;  // skip "$PYRO_LAND,"
+    char field_buf[16];
+    int fi;
+
+    // Field 0: max_alt_cm
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    if (*p == ',') p++;
+    int32_t max_alt_cm = atol(field_buf);
+
+    // Field 1: flight_time_ms
+    fi = 0;
+    while (*p && *p != ',' && *p != '*' && fi < 15) field_buf[fi++] = *p++;
+    field_buf[fi] = '\0';
+    uint32_t flight_time_ms = (uint32_t)atol(field_buf);
+
+    data.landing_event = true;
+    data.landing_max_alt_cm = max_alt_cm;
+    data.landing_time_ms = flight_time_ms;
+    data.last_rx_ms = millis();
+
+    return true;
+}
+
+void altimeter_rx_clear_events() {
+    data.apogee_event = false;
+    data.pyro1_fire_event = false;
+    data.pyro2_fire_event = false;
+    data.landing_event = false;
+}
+
 void altimeter_rx_init() {
     altSerial.begin(ALTIMETER_BAUD);
     pinPeripheral(ALT_TX_PIN, PIO_SERCOM);  // pin 10 -> SERCOM1 PAD 2
@@ -154,7 +282,13 @@ void altimeter_rx_update() {
             // End of sentence — attempt parse
             if (line_idx > 0) {
                 line_buf[line_idx] = '\0';
-                parse_pyro_sentence(line_buf);
+                if (!parse_pyro_sentence(line_buf)) {
+                    if (!parse_pyro_apo_sentence(line_buf)) {
+                        if (!parse_pyro_fire_sentence(line_buf)) {
+                            parse_pyro_land_sentence(line_buf);
+                        }
+                    }
+                }
                 line_idx = 0;
             }
         } else {

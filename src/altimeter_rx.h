@@ -26,8 +26,30 @@ typedef struct {
     int16_t  temp_deci_c;   // Temperature in tenths of °C (0 until implemented)
     bool     valid;         // True once at least one good $PYRO sentence received
     uint32_t last_rx_ms;    // millis() of last successful parse
+
+    // --- Event sentences from altimeter ---
+    // These flags are set when the corresponding $PYRO_* event sentence
+    // is received. The event_detector consumes them and clears via
+    // altimeter_rx_clear_events().
+
+    bool     apogee_event;          // $PYRO_APO received
+    int32_t  apogee_max_alt_cm;     // max_alt_cm from $PYRO_APO
+    uint32_t apogee_time_ms;        // flight_time_ms from $PYRO_APO
+
+    bool     pyro1_fire_event;      // $PYRO_FIRE with channel=1 received
+    int32_t  pyro1_fire_alt_cm;     // alt_cm from $PYRO_FIRE ch=1
+    uint32_t pyro1_fire_time_ms;    // flight_time_ms from $PYRO_FIRE ch=1
+
+    bool     pyro2_fire_event;      // $PYRO_FIRE with channel=2 received
+    int32_t  pyro2_fire_alt_cm;     // alt_cm from $PYRO_FIRE ch=2
+    uint32_t pyro2_fire_time_ms;    // flight_time_ms from $PYRO_FIRE ch=2
+
+    bool     landing_event;         // $PYRO_LAND received
+    int32_t  landing_max_alt_cm;    // max_alt_cm from $PYRO_LAND
+    uint32_t landing_time_ms;       // flight_time_ms from $PYRO_LAND
 } AltimeterData;
 
 void altimeter_rx_init();
 void altimeter_rx_update();
 const AltimeterData* altimeter_rx_get();
+void altimeter_rx_clear_events();

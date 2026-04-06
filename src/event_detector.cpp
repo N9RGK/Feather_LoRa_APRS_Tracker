@@ -1,4 +1,5 @@
 #include "event_detector.h"
+#include "altimeter_rx.h"
 #include "config.h"
 #include <Arduino.h>
 
@@ -16,6 +17,12 @@ static uint8_t  flight_errors = 0;     // FLERR_* accumulator
 static bool     report_sent  = false;
 static uint32_t landed_at_ms = 0;      // millis() when LANDED detected
 static bool     gps_was_valid = false;  // Track GPS loss during flight
+
+// --- Event sentence deduplication ---
+static bool apogee_from_sentence = false;   // $PYRO_APO already processed
+static bool p1_fire_from_sentence = false;  // $PYRO_FIRE ch=1 already processed
+static bool p2_fire_from_sentence = false;  // $PYRO_FIRE ch=2 already processed
+static bool landing_from_sentence = false;  // $PYRO_LAND already processed
 
 // --- Event queue (circular buffer) ---
 static FlightEvent queue[EVENT_QUEUE_SIZE];
@@ -66,12 +73,6 @@ static FlightEvent make_report(const AltimeterData* alt, const GpsFix* fix) {
     return evt;
 }
 
-// Check a single flag bit for a 0→1 transition.
-// Returns true if the bit is newly set (was 0, now 1).
-static bool flag_rose(uint16_t bit) {
-    return (prev_flags & bit) == 0 && (queue[0].code != 0); // placeholder
-}
-
 void event_detector_init() {
     event_detector_reset();
 }
@@ -91,6 +92,10 @@ void event_detector_reset() {
     q_head = 0;
     q_tail = 0;
     q_count = 0;
+    apogee_from_sentence = false;
+    p1_fire_from_sentence = false;
+    p2_fire_from_sentence = false;
+    landing_from_sentence = false;
 }
 
 void event_detector_update(const AltimeterData* alt, const GpsFix* fix) {
@@ -130,6 +135,61 @@ void event_detector_update(const AltimeterData* alt, const GpsFix* fix) {
         prev_flags = cur_flags;
         prev_valid = true;
         return;
+    }
+
+    // === EVENT SENTENCES — authoritative altimeter-side events ===
+    // These carry exact altitude/time from the altimeter's state machine.
+    // If we detect an event here, set a flag to suppress the duplicate
+    // detection from the periodic flag transition below.
+
+    if (alt->apogee_event && !apogee_from_sentence) {
+        FlightEvent evt = {};
+        evt.code = EVT_APOGEE;
+        evt.flight_time_s = alt->apogee_time_ms / 1000;
+        evt.alt_m = alt->apogee_max_alt_cm / 100;
+        evt.vel_mps = cur_vel_mps;  // not in sentence, use periodic value
+        push_event(&evt);
+        apogee_from_sentence = true;
+        // Also mark flags so the flag-based check below won't double-fire
+        prev_flags |= FLAG_APOGEE;
+        Serial.println("[EVT] Apogee (from $PYRO_APO sentence)");
+    }
+
+    if (alt->pyro1_fire_event && !p1_fire_from_sentence) {
+        FlightEvent evt = {};
+        evt.code = EVT_P1_FIRE;
+        evt.flight_time_s = alt->pyro1_fire_time_ms / 1000;
+        evt.alt_m = alt->pyro1_fire_alt_cm / 100;
+        evt.vel_mps = cur_vel_mps;
+        push_event(&evt);
+        p1_fire_from_sentence = true;
+        prev_flags |= FLAG_P1_FIRED;
+        Serial.println("[EVT] Pyro 1 fired (from $PYRO_FIRE sentence)");
+    }
+
+    if (alt->pyro2_fire_event && !p2_fire_from_sentence) {
+        FlightEvent evt = {};
+        evt.code = EVT_P2_FIRE;
+        evt.flight_time_s = alt->pyro2_fire_time_ms / 1000;
+        evt.alt_m = alt->pyro2_fire_alt_cm / 100;
+        evt.vel_mps = cur_vel_mps;
+        push_event(&evt);
+        p2_fire_from_sentence = true;
+        prev_flags |= FLAG_P2_FIRED;
+        Serial.println("[EVT] Pyro 2 fired (from $PYRO_FIRE sentence)");
+    }
+
+    if (alt->landing_event && !landing_from_sentence) {
+        FlightEvent evt = make_event(EVT_LANDED, alt, fix, true);  // include GPS
+        evt.flight_time_s = alt->landing_time_ms / 1000;
+        evt.alt_m = alt->alt_cm / 100;  // current altitude, not max
+        push_event(&evt);
+        landing_from_sentence = true;
+        // Set prev_state so the state-based check below won't double-fire
+        prev_state = STATE_LANDED;
+        landed_at_ms = millis();
+        report_sent = false;
+        Serial.println("[EVT] Landed (from $PYRO_LAND sentence)");
     }
 
     // === EVENT DETECTION — check for state/flag transitions ===
@@ -226,6 +286,11 @@ void event_detector_update(const AltimeterData* alt, const GpsFix* fix) {
             Serial.println("[EVT] Flight report queued");
         }
     }
+
+    // Clear event sentence flags after processing
+    // (Must happen every update, not just when events fire, because
+    //  the altimeter_rx doesn't auto-clear these flags.)
+    altimeter_rx_clear_events();
 
     // Save current state for next comparison
     prev_state = cur_state;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Arduino.h>
 #include "tracker_config.h"
 #include "event_detector.h"
 
@@ -29,3 +30,16 @@ void lora_curve_send();
 // Used by the airtime calculator to compute dynamic intervals.
 // Includes the 3-byte OE header.
 uint16_t lora_packet_size_estimate(uint8_t mode);
+
+// Transmit a packet string with the 3-byte OE header prepended.
+// Used by SEND commands in test mode.
+bool lora_transmit_packet(const String& packet);
+
+// Transmit raw bytes directly (no OE header prepended).
+// Caller controls the full payload.
+bool lora_transmit_raw(const uint8_t* data, size_t len);
+
+// Transmit an unmodulated carrier for the specified duration in ms.
+// Uses RadioLib's transmitDirect(0) and standby() to bracket the carrier.
+// Returns to RX-ready (standby) state after.
+bool lora_transmit_carrier(uint32_t duration_ms);

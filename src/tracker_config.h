@@ -6,6 +6,7 @@
 // Fields mirror the JSON keys. Defaults come from config.h compile-time values.
 typedef struct {
     char     callsign[12];        // APRS callsign (e.g. "N9RGK-1")
+    char     tracker_id[16];      // Unique tracker ID for GS (e.g. "TRK001", "Astrid")
     uint8_t  telemetry_mode;      // 0=APRS, 1=Full, 2=Hybrid, 3=Event, 4=Curve
     float    lora_freq_mhz;
     float    lora_bw_khz;
