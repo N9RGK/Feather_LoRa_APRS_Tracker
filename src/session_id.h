@@ -1,21 +1,24 @@
 #pragma once
 #include <stdint.h>
-#include <stdbool.h>
-#include <stddef.h>
 
-// Initialize session ID subsystem. Call once in setup().
+/**
+ * Initialize the session ID subsystem.
+ * Reads the last session counter from flash, increments it (wrapping 99→1),
+ * writes the new value back, and stores it for use in packet generation.
+ *
+ * Call once at startup, before any radio transmissions.
+ * No GPS dependency — session ID is available immediately.
+ */
 void session_id_init();
 
-// Call every loop iteration after gps_handler_update().
-// Latches session ID on first valid GPS date/time.
-void session_id_update();
+/**
+ * Get the current session ID as a 2-digit zero-padded string.
+ * Returns a pointer to a static buffer (e.g., "01", "42", "99").
+ * Valid only after session_id_init() has been called.
+ */
+const char* session_id_get();
 
-// Returns true if session ID has been generated (GPS fix received).
-bool session_id_valid();
-
-// Returns the raw 32-bit session ID (epoch seconds).
-uint32_t session_id_get();
-
-// Writes the 8-char hex string to buf (must be at least 9 bytes).
-// Returns false if session not yet valid.
-bool session_id_hex(char* buf, size_t buf_size);
+/**
+ * Get the current session ID as a numeric value (1-99).
+ */
+uint8_t session_id_get_numeric();

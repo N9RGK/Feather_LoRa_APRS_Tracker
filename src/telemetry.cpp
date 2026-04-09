@@ -64,13 +64,9 @@ String telemetry_build_aprs_packet(const GpsFix* fix, const AltimeterData* alt, 
         comment = buf;
     }
 
-    // Append session ID if available
-    char ss_hex[9];
-    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
-        char ss_buf[16];
-        snprintf(ss_buf, sizeof(ss_buf), " Ss:%s", ss_hex);
-        comment += ss_buf;
-    }
+    // Append session ID (always available — rolling counter, no GPS dependency)
+    comment += " Ss:";
+    comment += session_id_get();
 
     // Fallback to zero-position if GPS not valid
     double lat = fix->valid ? fix->lat : 0.0;
@@ -102,13 +98,9 @@ String telemetry_build_compact_aprs_packet(const GpsFix* fix, const AltimeterDat
         comment = buf;
     }
 
-    // Append session ID if available
-    char ss_hex[9];
-    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
-        char ss_buf[16];
-        snprintf(ss_buf, sizeof(ss_buf), " Ss:%s", ss_hex);
-        comment += ss_buf;
-    }
+    // Append session ID (always available — rolling counter, no GPS dependency)
+    comment += " Ss:";
+    comment += session_id_get();
 
     double lat = fix->valid ? fix->lat : 0.0;
     double lng = fix->valid ? fix->lng : 0.0;
@@ -124,12 +116,9 @@ String telemetry_build_dense_packet(const GpsFix* fix, const AltimeterData* alt,
     const TrackerConfig* cfg = tracker_config_get();
     char buf[220];
 
-    // Build session ID field if available
-    char ss_field[20] = "";
-    char ss_hex[9];
-    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
-        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
-    }
+    // Build session ID field (always available — rolling counter)
+    char ss_field[8];
+    snprintf(ss_field, sizeof(ss_field), "ss%s,", session_id_get());
 
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;
@@ -206,11 +195,8 @@ String telemetry_build_event_packet(const FlightEvent* evt, const char* callsign
     char buf[140];
     const TrackerConfig* cfg = tracker_config_get();
 
-    char ss_field[20] = "";
-    char ss_hex[9];
-    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
-        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
-    }
+    char ss_field[8];
+    snprintf(ss_field, sizeof(ss_field), "ss%s,", session_id_get());
 
     int len = snprintf(buf, sizeof(buf), "{{E:id%s,%sc%s,t%lu,a%ld,v%ld",
                        cfg->tracker_id,
@@ -248,11 +234,8 @@ String telemetry_build_curve_packet(const AltimeterData* alt, const char* callsi
     const TrackerConfig* cfg = tracker_config_get();
     char buf[100];
 
-    char ss_field[20] = "";
-    char ss_hex[9];
-    if (session_id_hex(ss_hex, sizeof(ss_hex))) {
-        snprintf(ss_field, sizeof(ss_field), "ss%s,", ss_hex);
-    }
+    char ss_field[8];
+    snprintf(ss_field, sizeof(ss_field), "ss%s,", session_id_get());
 
     if (alt && alt->valid) {
         int32_t alt_m = alt->alt_cm / 100;

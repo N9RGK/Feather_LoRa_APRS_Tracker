@@ -48,35 +48,35 @@ static uint32_t min_curve_interval_ms = 0;
 void recompute_airtime_limits() {
     const TrackerConfig* cfg = tracker_config_get();
 
-    // APRS position packet (~89 bytes payload + 3 OE header)
-    // +12 bytes for session ID field " Ss:XXXXXXXX"
+    // APRS position packet (~83 bytes payload + 3 OE header)
+    // Session ID field " Ss:NN" adds ~6 bytes
     min_aprs_interval_ms = lora_min_interval_ms(
-        3 + 89, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 83, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Dense telemetry packet (~175 bytes payload + 3 OE header)
-    // +12 bytes for session ID field "ssXXXXXXXX,"
+    // Dense telemetry packet (~168 bytes payload + 3 OE header)
+    // Session ID field "ssNN," adds ~5 bytes
     min_dense_interval_ms = lora_min_interval_ms(
-        3 + 175, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 168, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Compact APRS packet (~72 bytes payload + 3 OE header)
-    // +12 bytes for session ID field " Ss:XXXXXXXX"
+    // Compact APRS packet (~66 bytes payload + 3 OE header)
+    // Session ID field " Ss:NN" adds ~6 bytes
     min_compact_interval_ms = lora_min_interval_ms(
-        3 + 72, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
+        3 + 66, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 20, 250);
 
-    // Event packet (~67 bytes payload + 3 OE header)
-    // +12 bytes for session ID field "ssXXXXXXXX,"
+    // Event packet (~60 bytes payload + 3 OE header)
+    // Session ID field "ssNN," adds ~5 bytes
     // Slightly tighter — event bursts need to finish promptly so we
     // can get back to APRS beacons, but still need receiver re-sync time.
     min_event_interval_ms = lora_min_interval_ms(
-        3 + 67, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 15, 200);
+        3 + 60, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 15, 200);
 
-    // Curve packet (~77 bytes payload + 3 OE header)
-    // +12 bytes for session ID field "ssXXXXXXXX,"
+    // Curve packet (~70 bytes payload + 3 OE header)
+    // Session ID field "ssNN," adds ~5 bytes
     // Tightest budget — maximum data rate is the goal, but still leave
     // enough dead air for the radio to fully reset and the receiver to
     // process the previous packet before the next preamble arrives.
     min_curve_interval_ms = lora_min_interval_ms(
-        3 + 77, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 10, 150);
+        3 + 70, cfg->lora_sf, cfg->lora_bw_khz, cfg->lora_cr, 10, 150);
 
     Serial.println("Airtime limits (ms):");
     Serial.print("  APRS:    "); Serial.println(min_aprs_interval_ms);
@@ -189,9 +189,8 @@ void setup() {
     // Initialize event detector (used by MODE_EVENT, but always ready)
     event_detector_init();
 
-    // Initialize session ID subsystem
+    // Initialize session ID subsystem (rolling counter, no GPS dependency)
     session_id_init();
-    Serial.println("Session ID will be generated on first GPS fix");
 
     // Initialize CDC serial command handler
     serial_cmd_init();
@@ -252,7 +251,6 @@ static void flash_curve() {
 void loop() {
     // Feed GPS and altimeter parsers
     gps_handler_update();
-    session_id_update();
     altimeter_rx_update();
 
     // Process incoming CDC serial commands
